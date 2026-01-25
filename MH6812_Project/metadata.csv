@@ -1,0 +1,11 @@
+original_img_path,processed_img_path,instruction,label_brightness,label_contrast,label_temp
+dataset/images/img_0_orig.jpg,dataset/images/img_0_proc.jpg,Make the image look warmer and brighter version 0,0.7531625602116788,0.2333807307698209,0.10850554673543067
+dataset/images/img_1_orig.jpg,dataset/images/img_1_proc.jpg,Make the image look warmer and brighter version 1,0.5295442625839176,0.4380025431630731,0.2305653325638477
+dataset/images/img_2_orig.jpg,dataset/images/img_2_proc.jpg,Make the image look warmer and brighter version 2,0.8191470168559968,0.13335297257076273,0.84694226589056
+dataset/images/img_3_orig.jpg,dataset/images/img_3_proc.jpg,Make the image look warmer and brighter version 3,0.6045180017592472,0.2813692021688029,0.39654516291918473
+dataset/images/img_4_orig.jpg,dataset/images/img_4_proc.jpg,Make the image look warmer and brighter version 4,0.7475777200726007,0.8619240778948739,0.3907987428337176
+dataset/images/img_5_orig.jpg,dataset/images/img_5_proc.jpg,Make the image look warmer and brighter version 5,0.228742017278452,0.24801128138100992,0.8878984189785648
+dataset/images/img_6_orig.jpg,dataset/images/img_6_proc.jpg,Make the image look warmer and brighter version 6,0.888337657127655,0.05420047861696786,0.1836461037630457
+dataset/images/img_7_orig.jpg,dataset/images/img_7_proc.jpg,Make the image look warmer and brighter version 7,0.4386041572280246,0.4262230333417759,0.8117390620646469
+dataset/images/img_8_orig.jpg,dataset/images/img_8_proc.jpg,Make the image look warmer and brighter version 8,0.20300281596295722,0.827680204575945,0.14511107333594186
+dataset/images/img_9_orig.jpg,dataset/images/img_9_proc.jpg,Make the image look warmer and brighter version 9,0.6872240066291718,0.2234934464035485,0.9710217715269948
