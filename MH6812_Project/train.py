@@ -12,16 +12,37 @@ import numpy as np
 
 # --- 1. 定义数据集 (Refactored for Offline .pt/.npy Files) ---
 class PhotoEditDataset(Dataset):
-    def __init__(self, csv_file, img_emb_dir='dataset/embeddings/images', text_emb_dir='dataset/embeddings/texts'):
-        self.data = pd.read_csv(csv_file, engine="python", on_bad_lines="skip")
+    def __init__(self, csv_file, img_emb_dir='dataset/cv_embeddings', text_emb_dir='dataset/nlp_embeddings'):
+        self.raw_data = pd.read_csv(csv_file, engine="python", on_bad_lines="skip")
         self.img_emb_dir = img_emb_dir
         self.text_emb_dir = text_emb_dir
+        
+        # Filter data
+        valid_indices = []
+        print("Filtering dataset...")
+        for idx, row in tqdm(self.raw_data.iterrows(), total=len(self.raw_data)):
+            img_filename = os.path.basename(row['original_img_path'])
+            img_id = os.path.splitext(img_filename)[0]
+            
+            # Check Image Embedding
+            img_path = os.path.join(self.img_emb_dir, f"{img_id}.pt")
+            
+            # Check Text Embedding
+            text_path = os.path.join(self.text_emb_dir, f"{idx}.pt")
+            
+            if os.path.exists(img_path) and os.path.exists(text_path):
+                valid_indices.append(idx)
+        
+        self.data = self.raw_data.iloc[valid_indices].reset_index(drop=True)
+        self.original_indices = valid_indices
+        print(f"Filtered dataset: {len(self.data)} samples (from {len(self.raw_data)})")
         
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
+        original_idx = self.original_indices[idx]
         
         # 1. 加载 Image Embedding (Task 2 Output)
         # 从原始图片路径中提取 ID，例如 "dataset/images/img_0_orig.jpg" -> "img_0_orig"
@@ -41,8 +62,9 @@ class PhotoEditDataset(Dataset):
             raise FileNotFoundError(f"Missing image embedding: {img_id}")
 
         # 2. 加载 Text Embedding (Task 3 Output)
-        text_emb_path = os.path.join(self.text_emb_dir, f"{idx}.pt")
-        text_npy_path = os.path.join(self.text_emb_dir, f"{idx}.npy")
+        # Use original_idx because text embeddings are named after original CSV indices
+        text_emb_path = os.path.join(self.text_emb_dir, f"{original_idx}.pt")
+        text_npy_path = os.path.join(self.text_emb_dir, f"{original_idx}.npy")
         
         text_emb = None
         if os.path.exists(text_npy_path):
@@ -50,7 +72,7 @@ class PhotoEditDataset(Dataset):
         elif os.path.exists(text_emb_path):
             text_emb = torch.load(text_emb_path)
         else:
-             raise FileNotFoundError(f"Missing text embedding: index {idx}")
+             raise FileNotFoundError(f"Missing text embedding: index {original_idx}")
         
         # 3. 获取标签
         labels = torch.tensor([
@@ -67,7 +89,7 @@ def train():
     BATCH_SIZE = 4 # 增大 Batch Size 因为现在读取速度很快
     EPOCHS = 5
     LR = 0.001
-    CSV_FILE = 'metadata.csv'
+    CSV_FILE = 'dataset/metadata.csv'
     
     # 检查数据是否存在
     if not os.path.exists(CSV_FILE):

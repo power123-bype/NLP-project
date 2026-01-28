@@ -1,8 +1,8 @@
 import pdfplumber
 import os
 
-pdf_path = "task/nlp.pdf"
-txt_path = "task/nlp_content.txt"
+pdf_path = "task/nlp分工.pdf"
+txt_path = "task/nlp_task_assignment.txt"
 
 if not os.path.exists(pdf_path):
     print(f"File not found: {pdf_path}")
