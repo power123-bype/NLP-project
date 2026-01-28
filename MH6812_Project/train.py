@@ -1,21 +1,43 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import pandas as pd
 import os
 from tqdm import tqdm
+import numpy as np
 
 # 导入我们的融合模型
 from fusion_model import ImageTextFusionModel
-import numpy as np
 
 # --- 1. 定义数据集 (Refactored for Offline .pt/.npy Files) ---
 class PhotoEditDataset(Dataset):
     def __init__(self, csv_file, img_emb_dir='dataset/cv_embeddings', text_emb_dir='dataset/nlp_embeddings'):
-        self.raw_data = pd.read_csv(csv_file, engine="python", on_bad_lines="skip")
-        self.img_emb_dir = img_emb_dir
-        self.text_emb_dir = text_emb_dir
+        # Try multiple encodings
+        self.raw_data = None
+        encodings = ['utf-8', 'gb18030', 'latin1', 'cp1252']
+        for enc in encodings:
+            try:
+                self.raw_data = pd.read_csv(csv_file, engine="python", on_bad_lines="skip", encoding=enc)
+                print(f"Successfully read CSV with encoding: {enc}")
+                break
+            except Exception:
+                continue
+        
+        if self.raw_data is None:
+            raise ValueError(f"Could not read {csv_file} with supported encodings.")
+
+        # Ensure absolute paths
+        if not os.path.isabs(img_emb_dir):
+            img_emb_dir = os.path.join(os.path.dirname(csv_file), 'cv_embeddings')
+        if not os.path.isabs(text_emb_dir):
+            text_emb_dir = os.path.join(os.path.dirname(csv_file), 'nlp_embeddings')
+            
+        self.img_emb_dir = os.path.abspath(img_emb_dir)
+        self.text_emb_dir = os.path.abspath(text_emb_dir)
+        
+        print(f"Image Embeddings Dir: {self.img_emb_dir}")
+        print(f"Text Embeddings Dir: {self.text_emb_dir}")
         
         # Filter data
         valid_indices = []
@@ -86,10 +108,11 @@ class PhotoEditDataset(Dataset):
 # --- 2. 训练主函数 ---
 def train():
     # 配置
-    BATCH_SIZE = 4 # 增大 Batch Size 因为现在读取速度很快
-    EPOCHS = 5
+    BATCH_SIZE = 64 # 进一步增大 Batch Size 以稳定梯度
+    EPOCHS = 50     # 大幅增加 Epochs，配合早停机制
     LR = 0.001
-    CSV_FILE = 'dataset/metadata.csv'
+    PATIENCE = 10   # 早停耐心值
+    CSV_FILE = '/workspace/MH6812_Project/dataset/metadata.csv'
     
     # 检查数据是否存在
     if not os.path.exists(CSV_FILE):
@@ -98,53 +121,96 @@ def train():
 
     # 数据准备
     print("Initializing Dataset with Offline Embeddings...")
-    dataset = PhotoEditDataset(CSV_FILE)
-    print(f"Dataset initialized with {len(dataset)} samples.")
+    full_dataset = PhotoEditDataset(CSV_FILE)
+    
+    # 划分训练集和验证集 (80% / 20%)
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    
+    print(f"Dataset Split: {train_size} Train, {val_size} Validation")
 
-
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
-    print(f"DataLoader ready. Batch Size: {BATCH_SIZE}, Total Samples: {len(dataset)}")
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     
     # 模型初始化
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     model = ImageTextFusionModel().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5) # 增加轻微的正则化
+    
+    # 学习率调度器：当 val_loss 不再下降时，降低学习率
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+    
     criterion = nn.MSELoss()
     
+    best_val_loss = float('inf')
+    early_stop_counter = 0
+    
     # 训练循环
-    print("Start Training...")
-    model.train()
+    print(f"Start Training for {EPOCHS} epochs (Early Stopping Patience: {PATIENCE})...")
     
     for epoch in range(EPOCHS):
-        total_loss = 0
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{EPOCHS}")
+        # --- Training Phase ---
+        model.train()
+        train_loss = 0
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Train]")
         
         for img_emb, text_emb, labels in pbar:
-            # 关键：将 CPU Tensor 移动到 GPU
             img_emb = img_emb.to(device)
             text_emb = text_emb.to(device)
             labels = labels.to(device)
             
-            # Forward
+            optimizer.zero_grad()
             outputs = model(img_emb, text_emb)
             loss = criterion(outputs, labels)
-            
-            # Backward
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
-            total_loss += loss.item()
-            pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+            train_loss += loss.item()
+            pbar.set_postfix({'loss': f"{loss.item():.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.6f}"})
             
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
+        avg_train_loss = train_loss / len(train_loader)
         
-    # 保存模型
+        # --- Validation Phase ---
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for img_emb, text_emb, labels in val_loader:
+                img_emb = img_emb.to(device)
+                text_emb = text_emb.to(device)
+                labels = labels.to(device)
+                
+                outputs = model(img_emb, text_emb)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+        
+        avg_val_loss = val_loss / len(val_loader)
+        
+        # 更新学习率
+        current_lr = optimizer.param_groups[0]['lr']
+        scheduler.step(avg_val_loss)
+        
+        print(f"Epoch {epoch+1}: Train Loss = {avg_train_loss:.4f}, Val Loss = {avg_val_loss:.4f}, LR = {current_lr:.6f}")
+        
+        # Save Best Model & Early Stopping Logic
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), 'best_model.pth')
+            print(f"--> New best model saved! (Val Loss: {best_val_loss:.4f})")
+            early_stop_counter = 0 # 重置计数器
+        else:
+            early_stop_counter += 1
+            print(f"EarlyStopping counter: {early_stop_counter} out of {PATIENCE}")
+            
+        if early_stop_counter >= PATIENCE:
+            print("Early stopping triggered.")
+            break
+        
+    print(f"Training Complete. Best Val Loss: {best_val_loss:.4f}")
+    # 保存最终模型 (可选)
     torch.save(model.state_dict(), 'model_final.pth')
-    print("Model saved to model_final.pth")
 
 if __name__ == "__main__":
     train()
