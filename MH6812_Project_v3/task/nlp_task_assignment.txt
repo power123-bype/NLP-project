@@ -1,0 +1,73 @@
+--- Page 1 ---
+MH6812 项目详细分工与流水线规范
+周期：1 周 (7 天) | 团队规模：5 人
+1. 数据架构师 (Data Engineer) ——[核心基石]
+第一个动工，必须在第 1.5 天前完成初版数据集。
+• 找什么数据：从Unsplash或COCO下载2000-5000张中等分辨率的自然图（Landscape/Portrait）。
+• 具体工作：
+– 编写 generator.py：利用 Python 的 PIL 库，编写一个随机调参函数。随机范围：亮度
+±30%，对比度 ±20%，色温 ±50。
+– 生成结果图：运行脚本，生成原图 A 对应的处理图 B。
+– LLM 标注（关键）：使用 Trae 写一段代码调用 Gemini API。输入参数变化量，让它返回 5
+个不同的描述词。
+• 产出结果：
+– dataset/images/：存放所有图片。
+– metadata.csv：项目的“生命线”。
+• 接口对齐（对接 CV, NLP, 组长）：
+– CSV 格式对齐：必须包含列名 original_img_path, processed_img_path, instruction,
+label_brightness, label_contrast, label_temp。
+– 归一化对齐：与组长确认 Label 是原始数值还是 0 ∼ 1 之间的浮点数。
+2. CV 视觉研究员 (CV Specialist) ——[视觉翻译官]
+接收数据后立即动工，第 3 天必须完成特征提取。
+• 接收数据：从“数据架构师”处接收 dataset/images/ 文件夹。
+• 具体工作：
+– 编写 vision_encoder.py：调用 Week 5 学到的预训练 ResNet50 或 ViT 模型。
+– 图像预处理：将所有图片 Resize 为 224×224，进行 ImageNet 标准归一化。
+– 特征冻结：冻结预训练模型的权重（不参与训练），只把图片丢进去，拿走最后一层全连接层
+之前的特征向量。
+• 产出结果：一个封装好的 get_image_embedding(path) 函数。
+• 接口对齐（对接组长）：
+– 维度对齐：必须告诉组长你的输出向量维度是多少（例如 ResNet50 是 2048 维）。
+– 张量类型对齐：确认输出的是 torch.Tensor 还是 numpy.array。
+3. NLP 算法研究员 (NLP Specialist) ——[指令翻译官]
+接收数据后动工，第 3 天与 CV 进度同步。
+• 接收数据：从“数据架构师”处接收 metadata.csv 中的 instruction 列。
+• 具体工作：
+– 编写 text_encoder.py：调用 Week 9 的 BERT 或 DistilBERT 预训练模型。
+– 文本 Tokenization：处理变长指令，填充（Padding）到统一长度（如 32 个 Token）。
+– 语义提取：获取 [CLS] 位的特征向量作为整句指令的语义代表。
+• 产出结果：一个封装好的 get_text_embedding(text) 函数。
+• 接口对齐（对接组长）：
+– 维度对齐：告知组长文本向量维度（例如 BERT 基础版是 768 维）。
+– 词表一致性：确认使用的 Tokenizer 版本。
+4. 模型架构与集成组长 (Technical Lead) ——[大脑组装员]
+第 4 天开始集成，第 5-6 天全速训练模型。
+1
+
+--- Page 2 ---
+• 接收数据：接收 CV 和 NLP 两位同学提供的 embedding 函数和 metadata.csv。
+• 具体工作：
+– 编写 fusion_model.py：将 2048 维（视觉）和 768 维（文本）拼接，或者使用 Week 8 的
+Cross-Attention 进行交互。
+– 构建 MLP 回归头：接 3 个全连接层，输出最终的 n 个后期参数。
+– 编写 train.py：定义损失函数（MSE）并执行训练循环。
+• 产出结果：
+– 训练好的权重文件 model_final.pth。
+– inference.py：输入一张新图和一句话，输出预测参数。
+• 接口对齐（对接文档员）：
+– 可视化数据：提供训练过程的 Loss 曲线数据和几组成功的预测案例（原图 vs 预测调整图）。
+5. 评测与文档总监 (QA & Documentation) ——[金牌包装师]
+全程跟进，第 6-7 天产出最终成果。
+• 接收数据：接收组长的实验数据、Baseline 分数以及整个团队的任务记录。
+• 具体工作：
+– 指标计算：使用组长的模型在测试集上计算 MSE 和 ∆E 色差指标。
+– 撰写 LaTeX 报告：按照作业要求，分 Goals, NLP Tasks, Data, Baselines, Evaluation 五大
+板块撰写。
+– 制作演示 Demo：利用 Trae 写一个简单的 Gradio 或 Streamlit 网页，展示模型修图的效果。
+• 产出结果：
+– Project_Report.pdf (LaTeX 编译结果)。
+– Presentation.pptx。
+– 演示视频或实时 Demo 链接。
+• 接口对齐：确保所有人的名字、贡献度在文档中准确无误。
+2
+

@@ -35,7 +35,14 @@ class ImageTextFusionModel(nn.Module):
         Returns:
             output: (batch_size, output_dim) - 预测的参数 (brightness, contrast, temp)
         """
-        # 1. 特征拼接
+        # 1. 特征归一化与增强
+        # 归一化以平衡不同模态的尺度
+        img_emb = F.normalize(img_emb, p=2, dim=1)
+        text_emb = F.normalize(text_emb, p=2, dim=1)
+        
+        # 增强文本特征的权重 (例如提升 2 倍)
+        text_emb = text_emb * 2.0
+        
         # 确保两个特征都在同一个设备上，且维度正确
         if img_emb.dim() == 1:
             img_emb = img_emb.unsqueeze(0)
